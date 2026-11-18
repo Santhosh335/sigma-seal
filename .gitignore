@@ -1,0 +1,12 @@
+*.key
+*.pf
+*.compiled
+witness.json
+settings.json
+input.json
+sigma_seal_model.onnx
+sigma_seal_model.onnx.data
+trained_model.pt
+sample_input.npy
+scaler_mean.npy
+scaler_scale.npy
