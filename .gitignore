@@ -10,3 +10,7 @@ trained_model.pt
 sample_input.npy
 scaler_mean.npy
 scaler_scale.npy
+batch_input_*.json
+batch_witness_*.json
+batch_proof_*.pf
+__pycache__/
