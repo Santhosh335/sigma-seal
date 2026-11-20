@@ -14,3 +14,7 @@ batch_input_*.json
 batch_witness_*.json
 batch_proof_*.pf
 __pycache__/
+batch_input_*.json
+batch_witness_*.json
+batch_proof_*.pf
+__pycache__/
