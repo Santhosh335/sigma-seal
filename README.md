@@ -40,3 +40,11 @@ Download `events_anomalydetection_v2.features.h5` from the Zenodo page above.
 - Calibrated uncertainty (conformal prediction) — month 2
 - zk-proof verification — month 3+
 - Real ATLAS/CMS Open Data — later, once this pipeline is proven
+
+## Results log
+
+- Baseline (6 hand-picked features, features.h5 file): AUC 0.7789, 10% FPR calibration guarantee holds
+- Self-contained raw-particle features (26 features: jet mass/pT/multiplicity + energy rings, 20k events): AUC 0.8102
+- Self-contained raw-particle features (same 26 features, 100k events): AUC 0.7968, 9.8% empirical FPR vs 10% target
+  - **This 100k result is the one to cite** -- the 20k run's higher AUC was a smaller-sample fluctuation, not a real improvement
+- Note: discovered and fixed a row-alignment bug between events_anomalydetection.h5 and events_anomalydetection_v2.features.h5 (correlation ~0 between the two files' events) -- switched to deriving all features from the raw file alone to avoid it
