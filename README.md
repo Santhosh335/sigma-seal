@@ -1,50 +1,87 @@
 # Sigma Seal — Verifiable, Calibrated Anomaly Detection for Collider Physics
 
-## What this is (month 1 scope)
-A baseline unsupervised anomaly detector for particle-collision events, trained
-only on background (Standard-Model-like) data, evaluated on its ability to
-flag injected signal events as anomalous. This is the foundation step before
-adding calibrated uncertainty (month 2) and zk-proof verification (month 3+).
+An unsupervised anomaly detector for LHC collision events that reports a
+**calibrated confidence guarantee** instead of a bare score, and produces a
+**cryptographic (zero-knowledge) proof** that a published result came from
+the exact claimed model run on the exact claimed input — verifiable by
+anyone, without access to the model weights or training data.
 
-## Dataset: LHC Olympics 2020 R&D dataset — HIGH-LEVEL FEATURES FILE
-- Source: https://zenodo.org/record/4536377 (official R&D dataset used by the
-  LHC Olympics 2020 anomaly detection challenge)
-- **Download only `events_anomalydetection_v2.features.h5` (74.3 MB)** —
-  not the raw 2.8GB particle file. This file already contains the standard
-  6-feature representation (jet masses + n-subjettiness) used in published
-  LHCO baselines like CATHODE, pre-extracted. Confirmed columns:
-  `pxj1, pyj1, pzj1, mj1, tau1j1, tau2j1, tau3j1, pxj2, pyj2, pzj2, mj2,
-  tau1j2, tau2j2, tau3j2, label`
-- Why this dataset: it's a real benchmark used in published anomaly-detection
-  papers, and at 74.3 MB the full 1.1M-event file loads and trains on CPU in
-  minutes — no need to subsample for month 1. Background vs. injected-signal
-  labels exist for evaluation ONLY — the model never sees labels during
-  training (that's the point: unsupervised anomaly detection).
+## What's actually in this repo
+
+| File | What it does |
+|---|---|
+| `data_loader.py` | Loads the LHCO high-level features file (6-feature baseline) |
+| `raw_features.py` | Self-contained feature extraction directly from raw particle data (26 features: jet mass/pT/multiplicity + energy rings), using a simplified jet-finding heuristic |
+| `model.py` | The autoencoder architecture (shared by all training scripts) |
+| `train.py` | Trains the baseline model, reports ROC-AUC |
+| `calibrate_baseline.py` | Baseline model + conformal calibration (verified false-positive guarantee) |
+| `calibrate_raw.py` | Same calibration pipeline, using the richer raw-particle features |
+| `export_onnx.py` | Trains the baseline model and exports it to ONNX for the zk-proof pipeline |
+| `generate_proof.py` | Full EZKL pipeline: settings → circuit → proof → verification, for one event |
+| `batch_prove.py` | Runs proving + verification across multiple events, reports timing/size benchmarks |
+| `check_data_alignment.py` | Diagnostic: confirms whether two data files share the same event order (caught a real bug — see Results log) |
+| `check_onnx_compatibility.py` | Diagnostic: inspects an exported ONNX file's IR/opset version for EZKL compatibility |
+
+## Dataset
+
+[LHC Olympics 2020 R&D dataset](https://zenodo.org/record/4536377) — a real,
+published benchmark for collider anomaly detection (used in CATHODE and
+similar published methods). Two files are used:
+- `events_anomalydetection_v2.features.h5` (74 MB) — pre-extracted jet mass
+  and n-subjettiness features, used for the baseline.
+- `events_anomalydetection.h5` (2.8 GB) — raw per-particle four-vectors
+  (pT, eta, phi), used for the richer feature set. **Important:** this file
+  is NOT row-aligned with the features file above (see Results log) — all
+  raw-particle feature extraction here derives everything, including labels,
+  from this file alone.
 
 ## Setup
 ```bash
 pip install -r requirements.txt
 ```
-Download `events_anomalydetection_v2.features.h5` from the Zenodo page above.
+Download both files above from the Zenodo link.
 
-## Plan for month 1
-1. `src/data_loader.py` — load the features file directly with
-   `pd.read_hdf`, compute tau21/tau32 ratios from the raw tau1/2/3 columns.
-2. `src/model.py` — simple dense autoencoder trained on background-only jets.
-3. `src/train.py` — training loop + reconstruction-error anomaly score.
-4. Validation: check your trained model's anomaly score actually separates
-   injected signal from background on the held-out labeled set — this is
-   your "does the pipeline even work" sanity check before anything novel.
+## Usage
+```bash
+# Baseline: 6-feature model + calibration
+python calibrate_baseline.py "path\to\events_anomalydetection_v2.features.h5"
 
-## Explicitly NOT in scope yet
-- Calibrated uncertainty (conformal prediction) — month 2
-- zk-proof verification — month 3+
-- Real ATLAS/CMS Open Data — later, once this pipeline is proven
+# Richer model: raw-particle features + calibration
+python calibrate_raw.py "path\to\events_anomalydetection.h5" 100000
+
+# zk-proof pipeline (single event)
+python export_onnx.py "path\to\events_anomalydetection_v2.features.h5"
+python generate_proof.py
+
+# Batch proving benchmarks
+python batch_prove.py "path\to\events_anomalydetection_v2.features.h5" 10
+```
 
 ## Results log
 
-- Baseline (6 hand-picked features, features.h5 file): AUC 0.7789, 10% FPR calibration guarantee holds
-- Self-contained raw-particle features (26 features: jet mass/pT/multiplicity + energy rings, 20k events): AUC 0.8102
-- Self-contained raw-particle features (same 26 features, 100k events): AUC 0.7968, 9.8% empirical FPR vs 10% target
-  - **This 100k result is the one to cite** -- the 20k run's higher AUC was a smaller-sample fluctuation, not a real improvement
-- Note: discovered and fixed a row-alignment bug between events_anomalydetection.h5 and events_anomalydetection_v2.features.h5 (correlation ~0 between the two files' events) -- switched to deriving all features from the raw file alone to avoid it
+- **Baseline** (6 hand-picked features from the official features file):
+  AUC 0.7789, 10% false-positive calibration guarantee holds exactly.
+- **Raw-particle features** (26 features: jet mass/pT/multiplicity + energy
+  rings, derived entirely from the raw particle file), validated at 100,000
+  events: **AUC 0.7968**, 9.8% empirical FPR vs. 10% target — this is the
+  number to cite, not the smaller 20k-event run's 0.8102 (sample noise).
+- **zk-proof pipeline**: verified working end-to-end on the trained model.
+  Batch benchmark across 10 events: ~1.68s to prove, ~0.03s to verify,
+  ~18.6KB proof size, 10/10 verified successfully.
+- **Data integrity finding**: discovered the raw particle file and the v2
+  features file are NOT row-aligned (correlation ≈ 0 between the two files'
+  per-event momenta) — a real, documented issue with this dataset's history.
+  Fixed by deriving all raw-particle features self-contained from one file.
+
+## Known limitations (stated honestly, not glossed over)
+
+- Jet-finding for the raw-particle features uses a simplified sequential-cone
+  heuristic, not the official anti-kT algorithm (would need a fastjet/pyjet
+  dependency this project avoids for portability).
+- This is a verification + calibration method, **not a new-physics discovery**
+  — the anomaly signal used here is a known, injected benchmark signal, not
+  a genuine unseen physics result.
+- zk-proof generation (~1.7s/event) is far too slow for real-time use
+  (e.g. LHC trigger decisions, which need ~25 nanoseconds) — this pipeline
+  is designed for verifying already-published offline analysis results,
+  not live triggering.
